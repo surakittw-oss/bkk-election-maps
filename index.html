@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>รายงานผลเลือกตั้ง กรุงเทพมหานคร</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #0a0a0a; --panel: #171717; --panel-2: #262626;
+    --text: #e5e5e5; --muted: #a3a3a3; --accent: #d4d4d4; --border: #404040;
+    --bar-bg: #0a0a0a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Sukhumvit Set", "Noto Sans Thai", sans-serif; }
+  #app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
+  #sidebar { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+  #map { width: 100%; height: 100%; background: #0a0a0a; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; background: var(--panel-2); padding: 4px; border-radius: 8px; }
+  .tab { flex: 1; padding: 8px; text-align: center; border-radius: 6px; cursor: pointer; font-size: 13px; user-select: none; }
+  .tab.active { background: var(--accent); color: #0a0a0a; font-weight: 600; }
+  .summary { background: var(--panel-2); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .summary h3 { margin: 0 0 10px; font-size: 13px; color: var(--muted); font-weight: 500; }
+  .leaderboard { display: flex; flex-direction: column; gap: 10px; }
+  .cand-row { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: #0a0a0a; background-size: cover; background-position: center; border: 2px solid; flex-shrink: 0; }
+  .cand-cell { min-width: 0; }
+  .cand-cell .name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .cand-no { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; background: var(--bg); color: var(--text); border: 1px solid var(--border); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .popup-no { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 3px; font-size: 10px; font-weight: 700; background: rgba(255,255,255,0.08); color: var(--text); font-variant-numeric: tabular-nums; }
+  .cand-cell .party { font-size: 11px; color: var(--muted); }
+  .cand-cell .bar-wrap { background: #0a0a0a; border-radius: 4px; overflow: hidden; height: 5px; margin-top: 5px; }
+  .cand-cell .bar { height: 100%; transition: width 0.4s ease; }
+  .cand-row .num { font-variant-numeric: tabular-nums; font-size: 12px; text-align: right; }
+  .cand-row .num .pct { font-size: 11px; color: var(--muted); }
+  .cand-row.winner .name::after { content: " ✓"; color: #22c55e; }
+  #districtPanel { display: none; background: var(--panel-2); border-radius: 8px; padding: 12px; }
+  #districtPanel h3 { margin: 0 0 10px; font-size: 14px; }
+  .footer { margin-top: 16px; font-size: 11px; color: var(--muted); line-height: 1.6; }
+  .footer code { background: #0a0a0a; padding: 1px 5px; border-radius: 3px; font-size: 10px; }
+  .status { font-size: 11px; padding: 6px 10px; border-radius: 4px; margin-bottom: 12px; }
+  .status.loading { background: #262626; color: #a3a3a3; }
+  .status.error { background: #3f1f1f; color: #fca5a5; }
+  .status.ok { background: #1f2f1f; color: #86efac; }
+  .status.warn { background: #3a2f1f; color: #fcd34d; }
+  .legend { background: rgba(10, 10, 10, 0.92); padding: 10px 12px; border-radius: 6px; color: var(--text); font-size: 12px; line-height: 1.6; border: 1px solid var(--border); max-width: 220px; }
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border-radius: 8px; }
+  .leaflet-popup-tip { background: var(--panel); }
+  .popup-title { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+  .popup-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; }
+  .popup-row .pswatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .popup-row.winner { font-weight: 700; }
+  .popup-row .ppct { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .reported { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .total-row { display: flex; justify-content: space-between; font-size: 12px; padding-top: 10px; margin-top: 10px; border-top: 1px solid var(--border); color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <h1>เลือกตั้ง กรุงเทพมหานคร</h1>
+    <div class="subtitle">รายงานผลจาก Google Sheets</div>
+
+    <div class="tabs">
+      <div class="tab active" data-mode="governor">ผู้ว่าฯ กทม.</div>
+      <div class="tab" data-mode="council">ส.ก.</div>
+    </div>
+
+    <div id="status" class="status loading">กำลังโหลดข้อมูล...</div>
+
+    <div class="summary">
+      <h3 id="summaryTitle">ผลรวมทั้ง กทม.</h3>
+      <div id="leaderboard" class="leaderboard"></div>
+      <div class="total-row" id="totalRow"></div>
+    </div>
+
+    <div id="districtPanel">
+      <h3 id="districtName">—</h3>
+      <div id="districtLeaderboard" class="leaderboard"></div>
+      <div class="reported" id="districtReported"></div>
+    </div>
+
+    <div class="footer" id="footerHelp"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const CONFIG = {
+  SHEET_ID: "1abANACpNrqcd_Yv7S2qeTe2vdDkJZkoAgRgqQ-DWqcE",
+
+  // Tab "ผู้สมัคร" (No, Name, Party, Votes, Color, AvatarURL) — ใช้สำหรับ map สี/รูป
+  CANDIDATES_GOVERNOR: { gid: 0, headerRows: 2 },
+
+  // Tab "คะแนนรายเขต" wide format: district | counted | votes_1..N | winner
+  // Header columns: "votes_N คะแนน <ชื่อผู้สมัคร>"
+  DISTRICTS_GOVERNOR: { gid: 1704788302, headerRows: 3, format: "wide" },
+
+  // ส.ก. — long format มีทุกอย่างใน sheet เดียว (district, name, party, votes, elected, color, avatar_url)
+  CANDIDATES_COUNCIL: null,
+  DISTRICTS_COUNCIL: { gid: 891915583, headerRows: 2, format: "long-council" },
+
+  GEOJSON_URL: "./bangkok-districts.geojson",
+  GEOJSON_NAME_FIELD: "dname",
+  REFRESH_INTERVAL_SEC: 30,
+};
+
+const FALLBACK_COLORS = ["#e11d48", "#f97316", "#22c55e", "#0ea5e9", "#a855f7", "#eab308", "#14b8a6", "#ec4899"];
+
+// ============================================================
+// STATE
+// ============================================================
+const state = {
+  mode: "governor",
+  candidates: { governor: [], council: [] },  // [{name, party, votes, color, avatar}]
+  districts: { governor: [], council: [] },   // [{district, candidate, votes, reported}]
+  geojson: null,
+  geojsonLayer: null,
+};
+
+// ============================================================
+// MAP
+// ============================================================
+const map = L.map("map", {
+  zoomControl: true,
+  attributionControl: false,
+  minZoom: 9,
+  maxZoom: 14,
+}).setView([13.75, 100.55], 11);
+
+// ============================================================
+// DATA LOADING
+// ============================================================
+function setStatus(msg, kind = "loading") {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.className = "status " + kind;
+}
+
+function gvizUrl(spec) {
+  const base = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=out:csv`;
+  if (spec.gid !== undefined) return `${base}&gid=${spec.gid}&headers=${spec.headerRows || 1}`;
+  return `${base}&sheet=${encodeURIComponent(spec.sheet)}&headers=${spec.headerRows || 1}`;
+}
+
+async function fetchSheetRaw(spec) {
+  try {
+    const res = await fetch(gvizUrl(spec));
+    if (!res.ok) return [];
+    const text = await res.text();
+    return parseCSV(text);
+  } catch { return []; }
+}
+
+// Parse wide-format district rows (objects from parseCSV).
+// gviz merges multi-row headers into one key like "votes_1 คะแนน ชัชชาติ".
+function parseWideDistricts(rows) {
+  if (!rows.length) return [];
+  const keys = Object.keys(rows[0]);
+  const districtKey = keys.find(k => /district|เขต/i.test(k)) || keys[0];
+  const countedKey  = keys.find(k => /counted|นับ/i.test(k));
+  const candidateKeys = {}; // key -> candidate name
+  for (const k of keys) {
+    const m = k.match(/votes[_\s]*\d+\s*(?:คะแนน)?\s*(.+)/i);
+    if (m) candidateKeys[k] = m[1].trim();
+  }
+  // Dedupe: if a district appears multiple times in the sheet, keep the LAST occurrence
+  const byDistrict = new Map();
+  for (const row of rows) {
+    const district = String(row[districtKey] || "").trim();
+    if (!district || /^(รวม|total|sum|—)/i.test(district)) continue;
+    byDistrict.set(district, row);
+  }
+  if (byDistrict.size < rows.filter(r => String(r[districtKey] || "").trim() && !/^(รวม|total|sum|—)/i.test(String(r[districtKey]).trim())).length) {
+    console.warn("[BKKVote] พบเขตซ้ำใน sheet — ใช้ข้อมูลแถวล่าสุดของแต่ละเขต");
+  }
+
+  const out = [];
+  for (const [district, row] of byDistrict) {
+    const countedRaw = countedKey ? String(row[countedKey] || "").trim() : "1";
+    const reported = countedRaw === "1" ? 100 : countedRaw === "0" ? 0 : (parseFloat(countedRaw) || 100);
+    for (const k in candidateKeys) {
+      out.push({
+        district, candidate: candidateKeys[k], party: "",
+        votes: num(row[k]), reported,
+      });
+    }
+  }
+  return out;
+}
+
+function parseCSV(text) {
+  const rows = [];
+  let i = 0, field = "", row = [], inQ = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i += 2; continue; }
+      if (c === '"') { inQ = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { inQ = true; i++; continue; }
+    if (c === ",") { row.push(field); field = ""; i++; continue; }
+    if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); rows.push(row); row = []; field = ""; i++; continue;
+    }
+    field += c; i++;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  const headers = rows[0].map(h => h.trim());
+  return rows.slice(1).filter(r => r.some(c => c && c.trim().length))
+    .map(r => Object.fromEntries(headers.map((h, idx) => [h, (r[idx] || "").trim()])));
+}
+
+function num(v) { return parseInt(String(v || "").replace(/[, ]/g, ""), 10) || 0; }
+
+// Find first key matching any of the patterns (case-insensitive substring on key name)
+function pickKey(row, ...patterns) {
+  const keys = Object.keys(row);
+  for (const p of patterns) {
+    const k = keys.find(k => k.toLowerCase().includes(p.toLowerCase()) || k.includes(p));
+    if (k) return k;
+  }
+  return null;
+}
+
+function normalizeCandidate(r, fallbackIdx = 0) {
+  const noK = pickKey(r, "No", "ลำดับ", "เบอร์");
+  const nameK = pickKey(r, "Name", "ชื่อ");
+  const partyK = pickKey(r, "Party", "พรรค", "สังกัด");
+  const votesK = pickKey(r, "Votes", "คะแนน");
+  const colorK = pickKey(r, "Color", "สี");
+  const avatarK = pickKey(r, "AvatarURL", "Avatar", "รูป");
+  const name = (r[nameK] || "").trim();
+  return {
+    no: num(r[noK]) || (fallbackIdx + 1),
+    name,
+    party: (r[partyK] || "").trim(),
+    votes: num(r[votesK]),
+    color: (r[colorK] || "").trim() || FALLBACK_COLORS[fallbackIdx % FALLBACK_COLORS.length],
+    avatar: (r[avatarK] || "").trim(),
+  };
+}
+
+// For council: aggregate by PARTY across all districts (each district has its own slate of candidates).
+// Returns party-level summary used as "leaderboard" — seats won + total votes.
+function deriveCouncilCandidates(distRows) {
+  const seatsByDistrict = {}; // district -> winner row
+  const partyTally = {};      // party -> { seats, votes, color }
+  for (const r of distRows) {
+    if (!seatsByDistrict[r.district] || r.elected === 1) seatsByDistrict[r.district] = r;
+    const key = r.party || "(ไม่ระบุ)";
+    if (!partyTally[key]) partyTally[key] = { name: key, party: key, seats: 0, votes: 0, color: r.color || "", avatar: "" };
+    partyTally[key].votes += r.votes;
+    if (!partyTally[key].color && r.color) partyTally[key].color = r.color;
+  }
+  // count seats by elected flag (fallback: top votes per district)
+  const districtWinners = {};
+  for (const r of distRows) {
+    if (r.elected === 1) districtWinners[r.district] = r;
+  }
+  for (const d in seatsByDistrict) {
+    if (!districtWinners[d]) {
+      const top = distRows.filter(x => x.district === d).sort((a, b) => b.votes - a.votes)[0];
+      if (top) districtWinners[d] = top;
+    }
+  }
+  for (const d in districtWinners) {
+    const w = districtWinners[d];
+    const key = w.party || "(ไม่ระบุ)";
+    partyTally[key].seats = (partyTally[key].seats || 0) + 1;
+  }
+  let i = 0;
+  return Object.values(partyTally).map(p => {
+    if (!p.color) p.color = FALLBACK_COLORS[i++ % FALLBACK_COLORS.length];
+    return p;
+  }).sort((a, b) => (b.seats - a.seats) || (b.votes - a.votes));
+}
+
+function deriveCandidatesFromDistricts(distRows, candTab) {
+  const sums = {};
+  for (const r of distRows) {
+    if (!sums[r.candidate]) sums[r.candidate] = 0;
+    sums[r.candidate] += r.votes;
+  }
+  const ordered = Object.entries(sums).sort((a, b) => b[1] - a[1]);
+  return ordered.map(([name, votes], i) => {
+    const enriched = candTab.find(c => {
+      const first = c.name.split(/\s+/)[0];
+      return first === name || c.name === name || c.name.startsWith(name);
+    });
+    return {
+      no: enriched?.no || (i + 1),
+      name,
+      party: enriched?.party || "",
+      votes,
+      color: enriched?.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+      avatar: enriched?.avatar || "",
+    };
+  });
+}
+
+function normalizeDistrict(r) {
+  const districtK = pickKey(r, "district", "เขต");
+  const nameK = pickKey(r, "candidate", "name", "ผู้สมัคร", "ชื่อ");
+  const partyK = pickKey(r, "party", "พรรค", "สังกัด");
+  const votesK = pickKey(r, "votes", "คะแนน");
+  const reportedK = pickKey(r, "reported", "counted");
+  const electedK = pickKey(r, "elected", "ได้รับเลือก");
+  const colorK = pickKey(r, "color", "สี");
+  const avatarK = pickKey(r, "avatar", "รูป");
+  return {
+    district: (r[districtK] || "").trim(),
+    candidate: (r[nameK] || "").trim(),
+    party: (r[partyK] || "").trim(),
+    votes: num(r[votesK]),
+    reported: parseFloat(r[reportedK] || "100") || 100,
+    elected: num(r[electedK]),
+    color: (r[colorK] || "").trim(),
+    avatar: (r[avatarK] || "").trim(),
+  };
+}
+
+async function loadGeoJSON() {
+  const res = await fetch(CONFIG.GEOJSON_URL);
+  if (!res.ok) throw new Error("ไม่พบไฟล์ bangkok-districts.geojson");
+  return res.json();
+}
+
+async function loadAll() {
+  try {
+    setStatus("กำลังโหลด...");
+
+    const loadDistricts = (spec) => {
+      if (!spec) return Promise.resolve([]);
+      return fetchSheetRaw(spec).then(rows => {
+        if (spec.format === "wide") return parseWideDistricts(rows);
+        return rows.map(normalizeDistrict).filter(d => d.district && d.candidate);
+      });
+    };
+
+    const [geo, govCand, govDist, counDist] = await Promise.all([
+      state.geojson ? Promise.resolve(state.geojson) : loadGeoJSON().catch(() => null),
+      CONFIG.CANDIDATES_GOVERNOR ? fetchSheetRaw(CONFIG.CANDIDATES_GOVERNOR) : Promise.resolve([]),
+      loadDistricts(CONFIG.DISTRICTS_GOVERNOR),
+      loadDistricts(CONFIG.DISTRICTS_COUNCIL),
+    ]);
+
+    state.geojson = geo;
+    const govCandTab = govCand.map((r, i) => normalizeCandidate(r, i)).filter(c => c.name);
+    state.districts.governor = govDist;
+    state.districts.council = counDist;
+    state.candidates.governor = govDist.length
+      ? deriveCandidatesFromDistricts(govDist, govCandTab)
+      : govCandTab;
+    // Council: each row already carries color/avatar/party — derive candidate registry from district rows
+    state.candidates.council = deriveCouncilCandidates(counDist);
+
+    render();
+    updateFooter();
+
+    const haveData = state.candidates.governor.length || state.candidates.council.length;
+    if (!haveData) setStatus("ไม่พบข้อมูล — ตรวจ Sheet ID หรือ share permission", "error");
+    else if (!state.districts.governor.length && state.mode === "governor")
+      setStatus(`โหลดสำเร็จ — ยังไม่มีคะแนนรายเขต (สร้าง tab "${CONFIG.DISTRICTS_GOVERNOR.sheet}")`, "warn");
+    else setStatus(`อัปเดต: ${new Date().toLocaleTimeString("th-TH")}`, "ok");
+  } catch (err) {
+    console.error(err);
+    setStatus("ผิดพลาด: " + err.message, "error");
+  }
+}
+
+// ============================================================
+// AGGREGATE
+// ============================================================
+function getCandidates() { return state.candidates[state.mode] || []; }
+function getDistrictRows() { return state.districts[state.mode] || []; }
+
+// Group district rows by district name → sorted candidate list
+function districtTotals() {
+  const map = {};
+  for (const r of getDistrictRows()) {
+    if (!map[r.district]) map[r.district] = [];
+    map[r.district].push(r);
+  }
+  for (const d in map) map[d].sort((a, b) => b.votes - a.votes);
+  return map;
+}
+
+function colorOfCandidate(name) {
+  const c = getCandidates().find(c => c.name === name);
+  return c?.color || "#64748b";
+}
+
+// Color for a district row: prefer row.color (council carries it), else look up by party (council) or candidate (governor)
+function colorOfRow(row) {
+  if (row.color) return row.color;
+  if (state.mode === "council") {
+    const p = getCandidates().find(c => c.name === row.party);
+    return p?.color || "#64748b";
+  }
+  return colorOfCandidate(row.candidate);
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render() {
+  renderLeaderboard();
+  renderMap();
+}
+
+function renderLeaderboard() {
+  const cands = getCandidates();
+  const isCouncil = state.mode === "council";
+  document.getElementById("summaryTitle").textContent =
+    isCouncil ? "ที่นั่ง ส.ก. แยกตามพรรค" : "คะแนนรวมผู้ว่าฯ ทั้ง กทม.";
+  const lb = document.getElementById("leaderboard");
+  lb.innerHTML = "";
+  if (!cands.length) {
+    lb.innerHTML = `<div style="color:#94a3b8;font-size:12px">— ยังไม่มีข้อมูล —</div>`;
+    document.getElementById("totalRow").textContent = ""; return;
+  }
+
+  const metric = (c) => isCouncil ? (c.seats || 0) : c.votes;
+  const totalMetric = cands.reduce((s, c) => s + metric(c), 0);
+  const max = Math.max(...cands.map(metric), 1);
+  const sorted = [...cands].sort((a, b) => metric(b) - metric(a));
+
+  sorted.forEach((c, i) => {
+    const v = metric(c);
+    const pct = totalMetric ? ((v / totalMetric) * 100).toFixed(1) : "0.0";
+    const w = (v / max) * 100;
+    const valueLabel = isCouncil ? `${v} <span class="pct">ที่นั่ง</span>` : `${c.votes.toLocaleString()}<div class="pct">${pct}%</div>`;
+    const div = document.createElement("div");
+    div.className = "cand-row" + (i === 0 ? " winner" : "");
+    div.innerHTML = `
+      <div class="avatar" style="border-color:${c.color};${c.avatar ? `background-image:url('${escapeAttr(c.avatar)}')` : ""}"></div>
+      <div class="cand-cell">
+        <div class="name">${!isCouncil && c.no ? `<span class="cand-no" style="border-color:${c.color};color:${c.color}">${c.no}</span>` : ""}${escapeHtml(c.name)}</div>
+        <div class="party">${isCouncil ? `รวม ${c.votes.toLocaleString()} คะแนน` : escapeHtml(c.party)}</div>
+        <div class="bar-wrap"><div class="bar" style="width:${w}%;background:${c.color}"></div></div>
+      </div>
+      <div class="num">${valueLabel}</div>
+    `;
+    lb.appendChild(div);
+  });
+  // นับเขตที่ counted=1 (reported = 100)
+  const distRows = getDistrictRows();
+  const districtsAll = new Set(distRows.map(r => r.district));
+  const districtsCounted = new Set(distRows.filter(r => r.reported >= 100).map(r => r.district));
+  const counter = `นับแล้ว ${districtsCounted.size}/${districtsAll.size || 50} เขต`;
+  const totalLabel = isCouncil
+    ? `<span>${counter} • ที่นั่งทั้งหมด</span><span>${totalMetric}</span>`
+    : `<span>${counter} • คะแนนรวม</span><span>${totalMetric.toLocaleString()}</span>`;
+  document.getElementById("totalRow").innerHTML = totalLabel;
+}
+
+function renderMap() {
+  if (state.geojsonLayer) state.geojsonLayer.remove();
+  if (!state.geojson) return;
+  const byD = districtTotals();
+  const cands = getCandidates();
+  const overallWinner = cands.length ? [...cands].sort((a, b) => b.votes - a.votes)[0] : null;
+
+  state.geojsonLayer = L.geoJSON(state.geojson, {
+    style: (feature) => {
+      const name = feature.properties[CONFIG.GEOJSON_NAME_FIELD] || "";
+      const matchKey = matchDistrictName(name, byD);
+      const winner = matchKey ? byD[matchKey][0] : null;
+      // เขตยังไม่นับ / ไม่มีคะแนน → เทาเข้ม
+      const hasVotes = winner && winner.votes > 0 && winner.reported > 0;
+      if (!hasVotes) {
+        return { color: "#262626", weight: 1, fillColor: "#171717", fillOpacity: 0.6 };
+      }
+      return {
+        color: "#1e293b", weight: 1,
+        fillColor: colorOfRow(winner), fillOpacity: 0.78,
+      };
+    },
+    onEachFeature: (feature, layer) => {
+      const name = feature.properties[CONFIG.GEOJSON_NAME_FIELD] || "(ไม่ทราบ)";
+      const matchKey = matchDistrictName(name, byD);
+      const candidates = matchKey ? byD[matchKey] : [];
+
+      layer.on({
+        mouseover: (e) => { e.target.setStyle({ weight: 2.5, color: "#d4d4d4" }); e.target.bringToFront(); },
+        mouseout: (e) => state.geojsonLayer.resetStyle(e.target),
+        click: () => { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); showDistrictDetail(name, candidates); },
+      });
+      layer.bindTooltip(buildPopup(name, candidates), { sticky: true, className: "leaflet-popup-content-wrapper" });
+    },
+  }).addTo(map);
+
+  try {
+    const b = state.geojsonLayer.getBounds();
+    map.fitBounds(b, { padding: [20, 20] });
+    map.setMaxBounds(b.pad(0.15));
+  } catch (e) {}
+}
+
+function buildPopup(name, candidates) {
+  const total = candidates.reduce((s, c) => s + c.votes, 0);
+  let html = `<div class="popup-title">เขต${name.replace(/^เขต/, "")}</div>`;
+  if (!candidates.length) { html += `<div style="color:#94a3b8;font-size:12px">ยังไม่มีคะแนนรายเขต</div>`; return html; }
+  candidates.slice(0, 6).forEach((c, i) => {
+    const pct = total ? ((c.votes / total) * 100).toFixed(1) : "0.0";
+    const sub = c.party ? ` <span style="color:#94a3b8;font-size:11px">(${escapeHtml(c.party)})</span>` : "";
+    const cand = getCandidates().find(x => x.name === c.candidate);
+    const noBadge = cand?.no ? `<span class="popup-no" style="color:${colorOfRow(c)}">${cand.no}</span>` : "";
+    html += `<div class="popup-row${i === 0 ? " winner" : ""}">
+      <span class="pswatch" style="background:${colorOfRow(c)}"></span>
+      ${noBadge}
+      <span>${escapeHtml(c.candidate)}${sub}</span>
+      <span class="ppct">${pct}%</span>
+    </div>`;
+  });
+  html += `<div class="reported">นับแล้ว ${candidates[0]?.reported ?? 100}% • ${total.toLocaleString()} คะแนน</div>`;
+  return html;
+}
+
+function normalizeDistrictKey(s) {
+  return String(s || "")
+    .replace(/^เขต/, "")
+    .replace(/[ฎฏ]/g, "ฎ")  // ราษฎร์บูรณะ ≈ ราษฏร์บูรณะ
+    .replace(/\s+/g, "")
+    .trim();
+}
+function matchDistrictName(geoName, dataMap) {
+  const target = normalizeDistrictKey(geoName);
+  if (!target) return null;
+  if (dataMap[geoName]) return geoName;
+  return Object.keys(dataMap).find(k => normalizeDistrictKey(k) === target) || null;
+}
+
+function showDistrictDetail(name, candidates) {
+  const panel = document.getElementById("districtPanel");
+  panel.style.display = "block";
+  document.getElementById("districtName").textContent = "เขต" + name.replace(/^เขต/, "");
+  const lb = document.getElementById("districtLeaderboard");
+  lb.innerHTML = "";
+  if (!candidates.length) {
+    lb.innerHTML = `<div style="color:#94a3b8;font-size:12px">ยังไม่มีข้อมูลรายเขตสำหรับเขตนี้</div>`;
+    document.getElementById("districtReported").textContent = ""; return;
+  }
+  const total = candidates.reduce((s, c) => s + c.votes, 0);
+  const max = Math.max(...candidates.map(c => c.votes), 1);
+  for (const c of candidates) {
+    const pct = total ? ((c.votes / total) * 100).toFixed(1) : "0.0";
+    const w = (c.votes / max) * 100;
+    const color = colorOfRow(c);
+    const cand = getCandidates().find(x => x.name === c.candidate);
+    const avatar = c.avatar || cand?.avatar || "";
+    const div = document.createElement("div");
+    div.className = "cand-row";
+    div.innerHTML = `
+      <div class="avatar" style="border-color:${color};${avatar ? `background-image:url('${escapeAttr(avatar)}')` : ""}"></div>
+      <div class="cand-cell">
+        <div class="name">${cand?.no ? `<span class="cand-no" style="border-color:${color};color:${color}">${cand.no}</span>` : ""}${escapeHtml(c.candidate)}</div>
+        <div class="party">${escapeHtml(c.party || cand?.party || "")}</div>
+        <div class="bar-wrap"><div class="bar" style="width:${w}%;background:${color}"></div></div>
+      </div>
+      <div class="num">${c.votes.toLocaleString()}<div class="pct">${pct}%</div></div>
+    `;
+    lb.appendChild(div);
+  }
+  document.getElementById("districtReported").textContent = `นับแล้ว ${candidates[0]?.reported ?? 100}% • ${total.toLocaleString()} คะแนน`;
+}
+
+function updateFooter() {
+  const f = document.getElementById("footerHelp");
+  const hasDistrict = state.districts.governor.length || state.districts.council.length;
+  if (hasDistrict) {
+    f.innerHTML = `<strong>คลิกเขต</strong>เพื่อดูรายละเอียดคะแนน • อัปเดตทุก ${CONFIG.REFRESH_INTERVAL_SEC} วิ`;
+  } else {
+    f.innerHTML = `
+      <strong>เพิ่มคะแนนรายเขต:</strong> สร้าง tab ใหม่ใน Google Sheet ชื่อ <code>${CONFIG.DISTRICTS_GOVERNOR.sheet}</code><br>
+      คอลัมน์: <code>district</code>, <code>candidate</code>, <code>votes</code>, <code>reported</code><br>
+      ตัวอย่าง: <code>ดอนเมือง | ชัชชาติ สิทธิพันธุ์ | 45230 | 100</code><br><br>
+      ผู้สมัครต้องชื่อตรงกับ tab แรก (เพื่อ map สี/รูป)
+    `;
+  }
+}
+
+function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function escapeAttr(s) { return String(s ?? "").replace(/['"<>&]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ============================================================
+// UI EVENTS
+// ============================================================
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    state.mode = tab.dataset.mode;
+    document.getElementById("districtPanel").style.display = "none";
+    render();
+  });
+});
+
+// ============================================================
+// LEGEND
+// ============================================================
+const legend = L.control({ position: "bottomright" });
+legend.onAdd = function () {
+  const div = L.DomUtil.create("div", "legend");
+  div.innerHTML = `<strong style="font-size:11px;color:#94a3b8">การอ่านแผนที่</strong>
+    <div style="font-size:11px;color:#94a3b8;margin-top:4px">สีของแต่ละเขต = ผู้สมัครที่ชนะคะแนนในเขตนั้น<br>โทนเข้ม = มีข้อมูล • โทนจาง = ยังไม่มีข้อมูล</div>`;
+  return div;
+};
+legend.addTo(map);
+
+// ============================================================
+// INIT
+// ============================================================
+loadAll();
+if (CONFIG.REFRESH_INTERVAL_SEC > 0) {
+  setInterval(loadAll, CONFIG.REFRESH_INTERVAL_SEC * 1000);
+}
+</script>
+</body>
+</html>
