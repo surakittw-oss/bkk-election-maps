@@ -94,6 +94,18 @@
 // CONFIG
 // ============================================================
 const CONFIG = {
+  // แหล่งข้อมูล: "api" = ส่วนกลาง media.election.in.th | "sheet" = Google Sheets (fallback)
+  SOURCE: "api",
+
+  // ─── API source ─────────────────────────────────────
+  API: {
+    BASE_URL: "https://media.election.in.th",
+    KEY: "YOUR_PARTNER_KEY",                                  // ⚠ ใส่ key จริงตรงนี้ (รั่วได้ใน browser - ระวัง)
+    GOVERNOR_ID: "095f76e8-bed8-42e3-859a-2b47540ba8bd",
+    COUNCIL_ID:  "be5498a6-9d05-4655-8f1d-ba0f9dcb07a4",
+  },
+
+  // ─── Sheet source (fallback) ────────────────────────
   SHEET_ID: "1abANACpNrqcd_Yv7S2qeTe2vdDkJZkoAgRgqQ-DWqcE",
 
   // Tab "ผู้สมัคร" (No, Name, Party, Votes, Color, AvatarURL) — ใช้สำหรับ map สี/รูป
@@ -119,8 +131,10 @@ const FALLBACK_COLORS = ["#e11d48", "#f97316", "#22c55e", "#0ea5e9", "#a855f7", 
 // ============================================================
 const state = {
   mode: "governor",
-  candidates: { governor: [], council: [] },  // [{name, party, votes, color, avatar}]
-  districts: { governor: [], council: [] },   // [{district, candidate, votes, reported}]
+  candidates: { governor: [], council: [] },  // [{no, name, party, votes, color, avatar}]
+  districts: { governor: [], council: [] },   // [{district, candidate, votes, reported, ...}]
+  areas: { governor: {}, council: {} },        // district name -> {coverage, totalVotes, stationsReported, totalStations}
+  stats: { governor: null, council: null },   // {coverage, totalVotes, lastUpdated, source}
   geojson: null,
   geojsonLayer: null,
 };
@@ -142,6 +156,105 @@ function setStatus(msg, kind = "loading") {
   const el = document.getElementById("status");
   el.textContent = msg;
   el.className = "status " + kind;
+}
+
+// ─── API client ────────────────────────────────────────────
+async function apiGet(path) {
+  const res = await fetch(`${CONFIG.API.BASE_URL}${path}`, {
+    headers: { "Authorization": `Bearer ${CONFIG.API.KEY}` },
+  });
+  if (!res.ok) throw new Error(`API ${path}: HTTP ${res.status}`);
+  const json = await res.json();
+  return json.data;
+}
+
+async function loadFromAPI() {
+  const G = CONFIG.API.GOVERNOR_ID, C = CONFIG.API.COUNCIL_ID;
+  const [govStat, govCandRes, govAreasRes, counStat, counCandRes, counAreasRes] = await Promise.all([
+    apiGet(`/api/media/elections/${G}/auto/statistics`).catch(() => null),
+    apiGet(`/api/media/elections/${G}/auto/candidates`).catch(() => null),
+    apiGet(`/api/media/elections/${G}/auto/electionAreas`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/statistics`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/candidates`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/electionAreas`).catch(() => null),
+  ]);
+
+  // ─ Governor candidates (totals — ไม่มี breakdown รายเขต) ─
+  if (govCandRes?.candidates) {
+    state.candidates.governor = [...govCandRes.candidates]
+      .sort((a, b) => b.totalVotes - a.totalVotes)
+      .map((c, i) => ({
+        no: c.number || c.candidateNumber || (i + 1),
+        name: c.name || c.fullName || "",
+        party: c.party?.name || "",
+        votes: c.totalVotes || 0,
+        color: c.party?.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+        avatar: c.imageUrl || c.image || c.photo || "",
+      }));
+  }
+
+  // ─ Governor areas (per-district coverage + totalVotes) ─
+  if (govAreasRes?.electionAreas) {
+    state.areas.governor = {};
+    for (const a of govAreasRes.electionAreas) {
+      state.areas.governor[a.name] = {
+        coverage: a.coverage?.percentage || 0,
+        totalVotes: a.totalVotes || 0,
+        stationsReported: a.coverage?.stationsReported || 0,
+        totalStations: a.coverage?.totalStations || 0,
+      };
+    }
+    // Governor "districts" = synthetic rows (overall winner per district, opacity by coverage)
+    // Renderer สำหรับ governor จะใช้ overall winner + opacity
+    state.districts.governor = []; // intentionally empty — renderMap handles via state.areas
+  }
+
+  // ─ Council candidates (มี areaNumber + rank ครบ) ─
+  const areaToName = {};
+  if (counAreasRes?.electionAreas) {
+    state.areas.council = {};
+    for (const a of counAreasRes.electionAreas) {
+      areaToName[a.areaNumber] = a.name;
+      state.areas.council[a.name] = {
+        coverage: a.coverage?.percentage || 0,
+        totalVotes: a.totalVotes || 0,
+        stationsReported: a.coverage?.stationsReported || 0,
+        totalStations: a.coverage?.totalStations || 0,
+      };
+    }
+  }
+  if (counCandRes?.candidates) {
+    state.districts.council = counCandRes.candidates.map(c => {
+      const distName = areaToName[c.areaNumber] || `เขต ${c.areaNumber}`;
+      return {
+        district: distName,
+        candidate: c.name || c.fullName || "",
+        party: c.party?.name || "",
+        votes: c.totalVotes || 0,
+        reported: state.areas.council[distName]?.coverage || 0,
+        elected: c.rank === 1 ? 1 : 0,
+        color: c.party?.color || "",
+        avatar: c.imageUrl || c.image || "",
+        no: c.number || c.candidateNumber || 0,
+      };
+    });
+    state.candidates.council = deriveCouncilCandidates(state.districts.council);
+  }
+
+  // ─ Stats ─
+  state.stats.governor = govStat ? extractStats(govStat) : null;
+  state.stats.council  = counStat ? extractStats(counStat) : null;
+}
+
+function extractStats(s) {
+  return {
+    coverage: s.coverage?.percentage || 0,
+    stationsReported: s.coverage?.stationsReported || 0,
+    totalStations: s.coverage?.totalStations || 0,
+    totalVotes: s.statistics?.totalVotes || 0,
+    lastUpdated: s.lastUpdate || null,
+    source: s.source?.selected || "",
+  };
 }
 
 function gvizUrl(spec) {
@@ -336,43 +449,50 @@ async function loadGeoJSON() {
   return res.json();
 }
 
+async function loadFromSheet() {
+  const loadDistricts = (spec) => {
+    if (!spec) return Promise.resolve([]);
+    return fetchSheetRaw(spec).then(rows => {
+      if (spec.format === "wide") return parseWideDistricts(rows);
+      return rows.map(normalizeDistrict).filter(d => d.district && d.candidate);
+    });
+  };
+  const [govCand, govDist, counDist] = await Promise.all([
+    CONFIG.CANDIDATES_GOVERNOR ? fetchSheetRaw(CONFIG.CANDIDATES_GOVERNOR) : Promise.resolve([]),
+    loadDistricts(CONFIG.DISTRICTS_GOVERNOR),
+    loadDistricts(CONFIG.DISTRICTS_COUNCIL),
+  ]);
+  const govCandTab = govCand.map((r, i) => normalizeCandidate(r, i)).filter(c => c.name);
+  state.districts.governor = govDist;
+  state.districts.council = counDist;
+  state.candidates.governor = govDist.length
+    ? deriveCandidatesFromDistricts(govDist, govCandTab)
+    : govCandTab;
+  state.candidates.council = deriveCouncilCandidates(counDist);
+}
+
 async function loadAll() {
   try {
     setStatus("กำลังโหลด...");
+    if (!state.geojson) state.geojson = await loadGeoJSON().catch(() => null);
 
-    const loadDistricts = (spec) => {
-      if (!spec) return Promise.resolve([]);
-      return fetchSheetRaw(spec).then(rows => {
-        if (spec.format === "wide") return parseWideDistricts(rows);
-        return rows.map(normalizeDistrict).filter(d => d.district && d.candidate);
-      });
-    };
-
-    const [geo, govCand, govDist, counDist] = await Promise.all([
-      state.geojson ? Promise.resolve(state.geojson) : loadGeoJSON().catch(() => null),
-      CONFIG.CANDIDATES_GOVERNOR ? fetchSheetRaw(CONFIG.CANDIDATES_GOVERNOR) : Promise.resolve([]),
-      loadDistricts(CONFIG.DISTRICTS_GOVERNOR),
-      loadDistricts(CONFIG.DISTRICTS_COUNCIL),
-    ]);
-
-    state.geojson = geo;
-    const govCandTab = govCand.map((r, i) => normalizeCandidate(r, i)).filter(c => c.name);
-    state.districts.governor = govDist;
-    state.districts.council = counDist;
-    state.candidates.governor = govDist.length
-      ? deriveCandidatesFromDistricts(govDist, govCandTab)
-      : govCandTab;
-    // Council: each row already carries color/avatar/party — derive candidate registry from district rows
-    state.candidates.council = deriveCouncilCandidates(counDist);
+    if (CONFIG.SOURCE === "api") {
+      await loadFromAPI();
+    } else {
+      await loadFromSheet();
+    }
 
     render();
     updateFooter();
 
     const haveData = state.candidates.governor.length || state.candidates.council.length;
-    if (!haveData) setStatus("ไม่พบข้อมูล — ตรวจ Sheet ID หรือ share permission", "error");
-    else if (!state.districts.governor.length && state.mode === "governor")
-      setStatus(`โหลดสำเร็จ — ยังไม่มีคะแนนรายเขต (สร้าง tab "${CONFIG.DISTRICTS_GOVERNOR.sheet}")`, "warn");
-    else setStatus(`อัปเดต: ${new Date().toLocaleTimeString("th-TH")}`, "ok");
+    if (!haveData) {
+      setStatus(`ไม่พบข้อมูล — ตรวจ ${CONFIG.SOURCE === "api" ? "API key/CORS" : "Sheet share permission"}`, "error");
+    } else {
+      const cov = state.stats?.[state.mode]?.coverage;
+      const covLabel = cov != null ? ` • นับแล้ว ${(+cov).toFixed(1)}%` : "";
+      setStatus(`อัปเดต: ${new Date().toLocaleTimeString("th-TH")}${covLabel}`, "ok");
+    }
   } catch (err) {
     console.error(err);
     setStatus("ผิดพลาด: " + err.message, "error");
@@ -477,7 +597,15 @@ function renderMap() {
       const name = feature.properties[CONFIG.GEOJSON_NAME_FIELD] || "";
       const matchKey = matchDistrictName(name, byD);
       const winner = matchKey ? byD[matchKey][0] : null;
-      // เขตยังไม่นับ / ไม่มีคะแนน → เทาเข้ม
+      // โหมดผู้ว่าฯ via API: ไม่มี per-district candidate → ใช้ overall winner + opacity = coverage%
+      if (state.mode === "governor" && !winner && overallWinner) {
+        const areaKey = matchDistrictName(name, state.areas.governor);
+        const area = areaKey ? state.areas.governor[areaKey] : null;
+        const cov = area?.coverage || 0;
+        if (cov > 0) {
+          return { color: "#1e293b", weight: 1, fillColor: overallWinner.color, fillOpacity: 0.25 + (cov / 100) * 0.55 };
+        }
+      }
       const hasVotes = winner && winner.votes > 0 && winner.reported > 0;
       if (!hasVotes) {
         return { color: "#262626", weight: 1, fillColor: "#171717", fillOpacity: 0.6 };
@@ -511,7 +639,21 @@ function renderMap() {
 function buildPopup(name, candidates) {
   const total = candidates.reduce((s, c) => s + c.votes, 0);
   let html = `<div class="popup-title">เขต${name.replace(/^เขต/, "")}</div>`;
-  if (!candidates.length) { html += `<div style="color:#94a3b8;font-size:12px">ยังไม่มีคะแนนรายเขต</div>`; return html; }
+  if (!candidates.length) {
+    // โหมด governor via API: แสดง area metadata แทน candidate breakdown
+    const areaKey = matchDistrictName(name, state.areas[state.mode] || {});
+    const area = areaKey ? state.areas[state.mode][areaKey] : null;
+    if (area) {
+      html += `<div style="color:#a3a3a3;font-size:12px;line-height:1.7">
+        นับแล้ว ${(+area.coverage).toFixed(1)}%<br>
+        หน่วยเลือกตั้ง ${area.stationsReported.toLocaleString()}/${area.totalStations.toLocaleString()}<br>
+        คะแนนรวม ${area.totalVotes.toLocaleString()}
+      </div>`;
+    } else {
+      html += `<div style="color:#94a3b8;font-size:12px">ยังไม่มีข้อมูล</div>`;
+    }
+    return html;
+  }
   candidates.slice(0, 6).forEach((c, i) => {
     const pct = total ? ((c.votes / total) * 100).toFixed(1) : "0.0";
     const sub = c.party ? ` <span style="color:#94a3b8;font-size:11px">(${escapeHtml(c.party)})</span>` : "";
@@ -549,8 +691,22 @@ function showDistrictDetail(name, candidates) {
   const lb = document.getElementById("districtLeaderboard");
   lb.innerHTML = "";
   if (!candidates.length) {
-    lb.innerHTML = `<div style="color:#94a3b8;font-size:12px">ยังไม่มีข้อมูลรายเขตสำหรับเขตนี้</div>`;
-    document.getElementById("districtReported").textContent = ""; return;
+    // โหมด governor via API: ไม่มี breakdown รายเขต — แสดง area stats
+    const areaKey = matchDistrictName(name, state.areas[state.mode] || {});
+    const area = areaKey ? state.areas[state.mode][areaKey] : null;
+    if (area) {
+      lb.innerHTML = `
+        <div style="color:#a3a3a3;font-size:12px;line-height:1.8">
+          <strong style="color:#e5e5e5">นับแล้ว ${(+area.coverage).toFixed(1)}%</strong><br>
+          หน่วยเลือกตั้ง ${area.stationsReported.toLocaleString()}/${area.totalStations.toLocaleString()}<br>
+          คะแนนรวมในเขต ${area.totalVotes.toLocaleString()}
+        </div>`;
+      document.getElementById("districtReported").textContent = "(API ไม่ส่งคะแนนแยกรายผู้สมัครต่อเขต)";
+    } else {
+      lb.innerHTML = `<div style="color:#94a3b8;font-size:12px">ยังไม่มีข้อมูลรายเขตสำหรับเขตนี้</div>`;
+      document.getElementById("districtReported").textContent = "";
+    }
+    return;
   }
   const total = candidates.reduce((s, c) => s + c.votes, 0);
   const max = Math.max(...candidates.map(c => c.votes), 1);
