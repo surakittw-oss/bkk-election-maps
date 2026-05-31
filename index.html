@@ -657,12 +657,17 @@ function renderMap() {
         mouseover: (e) => { e.target.setStyle({ weight: 2.5, color: "#d4d4d4" }); e.target.bringToFront(); },
         mouseout: (e) => state.geojsonLayer.resetStyle(e.target),
         click: () => {
-          map.fitBounds(layer.getBounds(), { padding: [20, 20] });
           showDistrictDetail(name, candidates);
-          window.__openSidebarOnMobile?.();
+          // Desktop เท่านั้นที่ zoom (มือถือใช้ popup → ไม่ zoom จะได้ดู context รอบๆ ได้)
+          if (window.innerWidth > 900) {
+            map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+          }
         },
       });
-      layer.bindTooltip(buildPopup(name, candidates), { sticky: true, className: "leaflet-popup-content-wrapper" });
+      const popupHtml = buildPopup(name, candidates);
+      // Desktop hover → tooltip, Mobile/Desktop tap → popup
+      layer.bindTooltip(popupHtml, { sticky: true, className: "leaflet-popup-content-wrapper" });
+      layer.bindPopup(popupHtml, { maxWidth: 280, autoPan: true, closeButton: true });
     },
   }).addTo(map);
 
