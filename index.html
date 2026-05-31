@@ -14,9 +14,40 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Sukhumvit Set", "Noto Sans Thai", sans-serif; }
-  #app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; }
-  #sidebar { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; }
+  #app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; position: relative; }
+  #sidebar { background: var(--panel); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px; transition: transform 0.25s ease; }
   #map { width: 100%; height: 100%; background: #0a0a0a; }
+  #sidebarToggle {
+    position: fixed; top: 12px; left: 12px; z-index: 1001;
+    width: 40px; height: 40px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    cursor: pointer; display: none; align-items: center; justify-content: center;
+    font-size: 18px; padding: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  }
+  #sidebarToggle:hover { background: var(--panel-2); }
+  #sidebarBackdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 999;
+    display: none; opacity: 0; transition: opacity 0.25s ease;
+  }
+  #sidebarBackdrop.show { display: block; opacity: 1; }
+
+  /* Tablet & mobile */
+  @media (max-width: 900px) {
+    #app { grid-template-columns: 1fr; }
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0;
+      width: 86vw; max-width: 380px; z-index: 1000;
+      transform: translateX(-100%); border-right: 1px solid var(--border);
+      box-shadow: 4px 0 16px rgba(0,0,0,0.5);
+      padding-top: 60px;
+    }
+    #sidebar.open { transform: translateX(0); }
+    #sidebarToggle { display: flex; }
+    .leaflet-top.leaflet-left { left: 60px; }  /* zoom ctrl ไม่ทับปุ่ม toggle */
+  }
+  @media (max-width: 480px) {
+    #sidebar { width: 100vw; max-width: none; }
+  }
   h1 { font-size: 18px; margin: 0 0 4px; }
   .subtitle { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
   .tabs { display: flex; gap: 4px; margin-bottom: 12px; background: var(--panel-2); padding: 4px; border-radius: 8px; }
@@ -59,6 +90,8 @@
 </style>
 </head>
 <body>
+<button id="sidebarToggle" aria-label="เปิด/ปิด ลิสต์ผู้สมัคร">☰</button>
+<div id="sidebarBackdrop"></div>
 <div id="app">
   <aside id="sidebar">
     <h1>เลือกตั้ง กรุงเทพมหานคร</h1>
@@ -623,7 +656,11 @@ function renderMap() {
       layer.on({
         mouseover: (e) => { e.target.setStyle({ weight: 2.5, color: "#d4d4d4" }); e.target.bringToFront(); },
         mouseout: (e) => state.geojsonLayer.resetStyle(e.target),
-        click: () => { map.fitBounds(layer.getBounds(), { padding: [20, 20] }); showDistrictDetail(name, candidates); },
+        click: () => {
+          map.fitBounds(layer.getBounds(), { padding: [20, 20] });
+          showDistrictDetail(name, candidates);
+          window.__openSidebarOnMobile?.();
+        },
       });
       layer.bindTooltip(buildPopup(name, candidates), { sticky: true, className: "leaflet-popup-content-wrapper" });
     },
@@ -762,6 +799,21 @@ document.querySelectorAll(".tab").forEach(tab => {
     render();
   });
 });
+
+// Sidebar toggle (มือถือ/แท็บเล็ต)
+const sidebar = document.getElementById("sidebar");
+const backdrop = document.getElementById("sidebarBackdrop");
+const toggleBtn = document.getElementById("sidebarToggle");
+function setSidebar(open) {
+  sidebar.classList.toggle("open", open);
+  backdrop.classList.toggle("show", open);
+  toggleBtn.textContent = open ? "✕" : "☰";
+}
+toggleBtn.addEventListener("click", () => setSidebar(!sidebar.classList.contains("open")));
+backdrop.addEventListener("click", () => setSidebar(false));
+window.addEventListener("resize", () => { if (window.innerWidth > 900) setSidebar(false); });
+// expose สำหรับเรียกจาก showDistrictDetail
+window.__openSidebarOnMobile = () => { if (window.innerWidth <= 900) setSidebar(true); };
 
 // ============================================================
 // LEGEND
