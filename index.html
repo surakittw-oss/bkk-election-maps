@@ -665,8 +665,11 @@ function renderMap() {
         },
       });
       const popupHtml = buildPopup(name, candidates);
-      // Desktop hover → tooltip, Mobile/Desktop tap → popup
-      layer.bindTooltip(popupHtml, { sticky: true, className: "leaflet-popup-content-wrapper" });
+      // เฉพาะ device ที่ hover ได้ (เดสก์ท็อปมีเมาส์) → tooltip ลอยตอน hover
+      // มือถือ/แท็บเล็ต touch → ใช้ popup อย่างเดียว ป้องกันซ้อน
+      if (window.matchMedia("(hover: hover)").matches) {
+        layer.bindTooltip(popupHtml, { sticky: true, className: "leaflet-popup-content-wrapper" });
+      }
       layer.bindPopup(popupHtml, { maxWidth: 280, autoPan: true, closeButton: true });
     },
   }).addTo(map);
@@ -708,7 +711,8 @@ function buildPopup(name, candidates) {
       <span class="ppct">${pct}%</span>
     </div>`;
   });
-  html += `<div class="reported">นับแล้ว ${candidates[0]?.reported ?? 100}% • ${total.toLocaleString()} คะแนน</div>`;
+  const rep = +(candidates[0]?.reported ?? 100);
+  html += `<div class="reported">นับแล้ว ${rep.toFixed(1)}% • ${total.toLocaleString()} คะแนน</div>`;
   return html;
 }
 
@@ -771,7 +775,7 @@ function showDistrictDetail(name, candidates) {
     `;
     lb.appendChild(div);
   }
-  document.getElementById("districtReported").textContent = `นับแล้ว ${candidates[0]?.reported ?? 100}% • ${total.toLocaleString()} คะแนน`;
+  document.getElementById("districtReported").textContent = `นับแล้ว ${(+(candidates[0]?.reported ?? 100)).toFixed(1)}% • ${total.toLocaleString()} คะแนน`;
 }
 
 function updateFooter() {
