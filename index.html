@@ -220,18 +220,24 @@ async function apiGet(path) {
 
 async function loadFromAPI() {
   const G = CONFIG.API.GOVERNOR_ID, C = CONFIG.API.COUNCIL_ID;
+  // Governor → ?level=province (Bangkok = province 10)
+  // Council  → ?level=area    (50 districts)
   const [govStat, govCandRes, govAreasRes, counStat, counCandRes, counAreasRes] = await Promise.all([
-    apiGet(`/api/media/elections/${G}/auto/statistics`).catch(() => null),
-    apiGet(`/api/media/elections/${G}/auto/candidates`).catch(() => null),
-    apiGet(`/api/media/elections/${G}/auto/electionAreas`).catch(() => null),
-    apiGet(`/api/media/elections/${C}/auto/statistics`).catch(() => null),
-    apiGet(`/api/media/elections/${C}/auto/candidates`).catch(() => null),
-    apiGet(`/api/media/elections/${C}/auto/electionAreas`).catch(() => null),
+    apiGet(`/api/media/elections/${G}/auto/statistics?level=province`).catch(() => null),
+    apiGet(`/api/media/elections/${G}/auto/candidates?level=province`).catch(() => null),
+    apiGet(`/api/media/elections/${G}/auto/electionAreas?level=province`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/statistics?level=area`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/candidates?level=area`).catch(() => null),
+    apiGet(`/api/media/elections/${C}/auto/electionAreas?level=area`).catch(() => null),
   ]);
 
-  // ─ Governor candidates (totals — ไม่มี breakdown รายเขต) ─
+  // ─ Governor candidates (level=province → results[] หรือ candidates[]) ─
   console.log("[API] govCandRes:", govCandRes);
-  const candList = govCandRes?.candidates || govCandRes?.data?.candidates || [];
+  const candList = govCandRes?.candidates
+    || govCandRes?.results
+    || govCandRes?.data?.candidates
+    || govCandRes?.data?.results
+    || [];
   if (candList.length) {
     state.candidates.governor = [...candList]
       .sort((a, b) => (b.totalVotes || 0) - (a.totalVotes || 0))
