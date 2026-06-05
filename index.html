@@ -254,29 +254,35 @@ async function loadFromAPI() {
     console.warn("[API] governor candidates empty — will use override sheet as source");
   }
 
-  // ─ Governor areas (per-district coverage + totalVotes) ─
-  if (govAreasRes?.electionAreas) {
+  // ─ Governor areas ─
+  const govAreas = govAreasRes?.electionAreas || govAreasRes?.results || [];
+  if (govAreas.length) {
     state.areas.governor = {};
-    for (const a of govAreasRes.electionAreas) {
-      state.areas.governor[a.name] = {
+    for (const a of govAreas) {
+      const aName = a.name || a.areaName || "";
+      if (!aName) continue;
+      state.areas.governor[aName] = {
         coverage: a.coverage?.percentage || 0,
         totalVotes: a.totalVotes || 0,
         stationsReported: a.coverage?.stationsReported || 0,
         totalStations: a.coverage?.totalStations || 0,
       };
     }
-    // Governor "districts" = synthetic rows (overall winner per district, opacity by coverage)
-    // Renderer สำหรับ governor จะใช้ overall winner + opacity
-    state.districts.governor = []; // intentionally empty — renderMap handles via state.areas
+    console.log("[API] governor areas loaded:", Object.keys(state.areas.governor).length, "เขต");
+    state.districts.governor = [];
   }
 
   // ─ Council candidates (มี areaNumber + rank ครบ) ─
   const areaToName = {};
-  if (counAreasRes?.electionAreas) {
+  // รองรับทั้ง electionAreas[] และ results[]
+  const counAreas = counAreasRes?.electionAreas || counAreasRes?.results || [];
+  if (counAreas.length) {
     state.areas.council = {};
-    for (const a of counAreasRes.electionAreas) {
-      areaToName[a.areaNumber] = a.name;
-      state.areas.council[a.name] = {
+    for (const a of counAreas) {
+      const aNum = a.areaNumber ?? a.area ?? a.id;
+      const aName = a.name || a.areaName || `เขต ${aNum}`;
+      areaToName[aNum] = aName;
+      state.areas.council[aName] = {
         coverage: a.coverage?.percentage || 0,
         totalVotes: a.totalVotes || 0,
         stationsReported: a.coverage?.stationsReported || 0,
@@ -284,22 +290,27 @@ async function loadFromAPI() {
       };
     }
   }
-  if (counCandRes?.candidates) {
-    state.districts.council = counCandRes.candidates.map(c => {
-      const distName = areaToName[c.areaNumber] || `เขต ${c.areaNumber}`;
+  // รองรับทั้ง candidates[] และ results[]
+  const counCands = counCandRes?.candidates || counCandRes?.results || [];
+  console.log("[API] council candidates count:", counCands.length);
+  if (counCands.length) {
+    state.districts.council = counCands.map(c => {
+      const aNum = c.areaNumber ?? c.area ?? c.areaId;
+      const distName = areaToName[aNum] || c.areaName || `เขต ${aNum}`;
       return {
         district: distName,
-        candidate: c.name || c.fullName || "",
-        party: c.party?.name || "",
-        votes: c.totalVotes || 0,
+        candidate: c.name || c.fullName || c.candidateName || "",
+        party: c.party?.name || c.partyName || "",
+        votes: c.totalVotes || c.votes || 0,
         reported: state.areas.council[distName]?.coverage || 0,
-        elected: c.rank === 1 ? 1 : 0,
-        color: c.party?.color || "",
-        avatar: c.imageUrl || c.image || "",
-        no: c.number || c.candidateNumber || 0,
+        elected: (c.rank === 1 || c.elected === true || c.elected === 1) ? 1 : 0,
+        color: c.party?.color || c.color || "",
+        avatar: c.imageUrl || c.image || c.photo || "",
+        no: c.number || c.candidateNumber || c.no || 0,
       };
     });
     state.candidates.council = deriveCouncilCandidates(state.districts.council);
+    console.log("[API] council districts parsed:", new Set(state.districts.council.map(r => r.district)).size, "เขต");
   }
 
   // ─ Stats ─
