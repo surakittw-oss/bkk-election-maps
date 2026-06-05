@@ -78,9 +78,21 @@
   .status.ok { background: #1f2f1f; color: #86efac; }
   .status.warn { background: #3a2f1f; color: #fcd34d; }
   .legend { background: rgba(10, 10, 10, 0.92); padding: 10px 12px; border-radius: 6px; color: var(--text); font-size: 12px; line-height: 1.6; border: 1px solid var(--border); max-width: 220px; }
-  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border-radius: 8px; }
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border-radius: 12px; }
   .leaflet-popup-tip { background: var(--panel); }
-  .popup-title { font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+  .leaflet-popup-content { margin: 14px 16px !important; }
+  .popup-title { font-weight: 700; margin-bottom: 10px; font-size: 15px; }
+  /* top-3 avatar row */
+  .popup-top3 { display: flex; gap: 8px; margin-bottom: 10px; }
+  .popup-cand { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
+  .popup-cand .p-avatar { width: 52px; height: 52px; border-radius: 50%; background: #171717; background-size: cover; background-position: center; border: 3px solid; flex-shrink: 0; position: relative; }
+  .popup-cand.rank1 .p-avatar { width: 64px; height: 64px; }
+  .popup-cand .p-crown { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 14px; }
+  .popup-cand .p-name { font-size: 10px; text-align: center; margin-top: 5px; line-height: 1.3; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; width: 100%; }
+  .popup-cand .p-votes { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .popup-cand .p-pct { font-size: 10px; color: var(--muted); }
+  .popup-cand .p-no { font-size: 9px; font-weight: 700; background: var(--bg); border-radius: 3px; padding: 1px 4px; margin-top: 2px; }
+  /* rest list */
   .popup-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; }
   .popup-row .pswatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   .popup-row.winner { font-weight: 700; }
@@ -745,7 +757,7 @@ function renderMap() {
       if (window.matchMedia("(hover: hover)").matches) {
         layer.bindTooltip(popupHtml, { sticky: true, className: "leaflet-popup-content-wrapper" });
       }
-      layer.bindPopup(popupHtml, { maxWidth: 280, autoPan: true, closeButton: true });
+      layer.bindPopup(popupHtml, { maxWidth: 300, minWidth: 260, autoPan: true, closeButton: true });
     },
   }).addTo(map);
 
@@ -774,18 +786,55 @@ function buildPopup(name, candidates) {
     }
     return html;
   }
-  candidates.slice(0, 6).forEach((c, i) => {
+  const top3 = candidates.slice(0, 3);
+  const rest = candidates.slice(3, 7);
+
+  // ─ Top 3 avatar row ─
+  // เรียง: อันดับ 2 | อันดับ 1 (กลาง ใหญ่กว่า) | อันดับ 3
+  const podium = top3.length >= 2
+    ? [top3[1], top3[0], top3[2]].filter(Boolean)
+    : top3;
+  const podiumClasses = top3.length >= 2 ? ["rank2", "rank1", "rank3"] : ["rank1"];
+
+  html += `<div class="popup-top3">`;
+  podium.forEach((c, pi) => {
+    const rankClass = podiumClasses[pi];
+    const isWinner = rankClass === "rank1";
     const pct = total ? ((c.votes / total) * 100).toFixed(1) : "0.0";
-    const sub = c.party ? ` <span style="color:#94a3b8;font-size:11px">(${escapeHtml(c.party)})</span>` : "";
     const cand = getCandidates().find(x => x.name === c.candidate);
-    const noBadge = cand?.no ? `<span class="popup-no" style="color:${colorOfRow(c)}">${cand.no}</span>` : "";
-    html += `<div class="popup-row${i === 0 ? " winner" : ""}">
-      <span class="pswatch" style="background:${colorOfRow(c)}"></span>
-      ${noBadge}
-      <span>${escapeHtml(c.candidate)}${sub}</span>
-      <span class="ppct">${pct}%</span>
-    </div>`;
+    const avatar = c.avatar || cand?.avatar || "";
+    const color = colorOfRow(c);
+    const no = c.no || cand?.no || "";
+    html += `
+      <div class="popup-cand ${rankClass}">
+        <div class="p-avatar" style="border-color:${color};${avatar ? `background-image:url('${escapeAttr(avatar)}')` : ""}">
+          ${isWinner ? `<span class="p-crown">👑</span>` : ""}
+        </div>
+        ${no ? `<div class="p-no" style="color:${color}">${no}</div>` : ""}
+        <div class="p-name">${escapeHtml(c.candidate)}</div>
+        <div class="p-votes" style="color:${color}">${c.votes.toLocaleString()}</div>
+        <div class="p-pct">${pct}%</div>
+      </div>`;
   });
+  html += `</div>`;
+
+  // ─ อันดับ 4+ (text list) ─
+  if (rest.length) {
+    html += `<div style="border-top:1px solid #404040;padding-top:6px;margin-top:2px">`;
+    rest.forEach(c => {
+      const pct = total ? ((c.votes / total) * 100).toFixed(1) : "0.0";
+      const cand = getCandidates().find(x => x.name === c.candidate);
+      const no = c.no || cand?.no || "";
+      html += `<div class="popup-row">
+        <span class="pswatch" style="background:${colorOfRow(c)}"></span>
+        ${no ? `<span class="popup-no" style="color:${colorOfRow(c)}">${no}</span>` : ""}
+        <span>${escapeHtml(c.candidate)}</span>
+        <span class="ppct">${pct}%</span>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
   const rep = +(candidates[0]?.reported ?? 100);
   html += `<div class="reported">นับแล้ว ${rep.toFixed(1)}% • ${total.toLocaleString()} คะแนน</div>`;
   return html;
