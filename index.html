@@ -138,6 +138,11 @@ const CONFIG = {
     COUNCIL_ID:  "be5498a6-9d05-4655-8f1d-ba0f9dcb07a4",
   },
 
+  // ─── Override layer (ใช้คู่กับ API: ทับ name/avatar/color ที่เป็น placeholder) ─
+  // คอลัมน์: No | Name | Avatar (Drive share URL) | Color (#hex) | Party Logo
+  OVERRIDE_GOVERNOR: { gid: 1533971038, headerRows: 2 },
+  OVERRIDE_COUNCIL: null,  // ใส่ { gid: XXXX, headerRows: 2 } เมื่อมีชีต ส.ก. (ต้องมีคอลัมน์ Area เพิ่ม)
+
   // ─── Sheet source (fallback) ────────────────────────
   SHEET_ID: "1abANACpNrqcd_Yv7S2qeTe2vdDkJZkoAgRgqQ-DWqcE",
 
@@ -277,6 +282,75 @@ async function loadFromAPI() {
   // ─ Stats ─
   state.stats.governor = govStat ? extractStats(govStat) : null;
   state.stats.council  = counStat ? extractStats(counStat) : null;
+}
+
+// แปลง Google Drive share URL → thumbnail URL ที่ฝังในแท็ก <img> ได้
+function driveUrlToThumb(url) {
+  if (!url) return "";
+  const m = url.match(/\/file\/d\/([^/?#]+)/) || url.match(/[?&]id=([^&]+)/);
+  if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=s500`;
+  return url;
+}
+
+// ดึงชีต override + ทับ name/avatar/color บนผู้สมัครจาก API (match ด้วย "เบอร์")
+async function applyOverrides() {
+  // ─ Governor: match ด้วย candidate no ─
+  if (CONFIG.OVERRIDE_GOVERNOR && state.candidates.governor.length) {
+    const rows = await fetchSheetRaw(CONFIG.OVERRIDE_GOVERNOR);
+    const byNo = {};
+    for (const r of rows) {
+      const noK = pickKey(r, "No", "ลำดับ", "เบอร์");
+      const nameK = pickKey(r, "Name", "ชื่อ");
+      const avatarK = pickKey(r, "Avatar", "รูป");
+      const colorK = pickKey(r, "Color", "สี");
+      const noVal = num(r[noK]);
+      if (!noVal) continue;
+      byNo[noVal] = {
+        name: (r[nameK] || "").trim(),
+        avatar: driveUrlToThumb((r[avatarK] || "").trim()),
+        color: (r[colorK] || "").trim(),
+      };
+    }
+    for (const cand of state.candidates.governor) {
+      const o = byNo[cand.no];
+      if (!o) continue;
+      if (o.name) cand.name = o.name;
+      if (o.avatar) cand.avatar = o.avatar;
+      if (o.color) cand.color = o.color;
+    }
+  }
+
+  // ─ Council: match ด้วย (areaNumber, no) ─
+  // ชีตต้องมีคอลัมน์: Area | No | Name | Avatar | Color
+  if (CONFIG.OVERRIDE_COUNCIL && state.districts.council.length) {
+    const rows = await fetchSheetRaw(CONFIG.OVERRIDE_COUNCIL);
+    const byKey = {};  // "areaName:no" -> override
+    for (const r of rows) {
+      const areaK = pickKey(r, "Area", "เขต", "district");
+      const noK = pickKey(r, "No", "ลำดับ", "เบอร์");
+      const nameK = pickKey(r, "Name", "ชื่อ");
+      const avatarK = pickKey(r, "Avatar", "รูป");
+      const colorK = pickKey(r, "Color", "สี");
+      const area = (r[areaK] || "").trim().replace(/^เขต/, "");
+      const noVal = num(r[noK]);
+      if (!area || !noVal) continue;
+      byKey[`${normalizeDistrictKey(area)}:${noVal}`] = {
+        name: (r[nameK] || "").trim(),
+        avatar: driveUrlToThumb((r[avatarK] || "").trim()),
+        color: (r[colorK] || "").trim(),
+      };
+    }
+    for (const row of state.districts.council) {
+      const k = `${normalizeDistrictKey(row.district)}:${row.no}`;
+      const o = byKey[k];
+      if (!o) continue;
+      if (o.name) row.candidate = o.name;
+      if (o.avatar) row.avatar = o.avatar;
+      if (o.color) row.color = o.color;
+    }
+    // rebuild candidates registry หลัง override (พรรค/สี อาจเปลี่ยน)
+    state.candidates.council = deriveCouncilCandidates(state.districts.council);
+  }
 }
 
 function extractStats(s) {
@@ -511,6 +585,7 @@ async function loadAll() {
 
     if (CONFIG.SOURCE === "api") {
       await loadFromAPI();
+      await applyOverrides().catch(err => console.warn("[override]", err));
     } else {
       await loadFromSheet();
     }
