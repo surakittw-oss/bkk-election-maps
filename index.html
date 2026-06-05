@@ -230,17 +230,22 @@ async function loadFromAPI() {
   ]);
 
   // ─ Governor candidates (totals — ไม่มี breakdown รายเขต) ─
-  if (govCandRes?.candidates) {
-    state.candidates.governor = [...govCandRes.candidates]
-      .sort((a, b) => b.totalVotes - a.totalVotes)
+  console.log("[API] govCandRes:", govCandRes);
+  const candList = govCandRes?.candidates || govCandRes?.data?.candidates || [];
+  if (candList.length) {
+    state.candidates.governor = [...candList]
+      .sort((a, b) => (b.totalVotes || 0) - (a.totalVotes || 0))
       .map((c, i) => ({
-        no: c.number || c.candidateNumber || (i + 1),
-        name: c.name || c.fullName || "",
-        party: c.party?.name || "",
-        votes: c.totalVotes || 0,
-        color: c.party?.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
-        avatar: c.imageUrl || c.image || c.photo || "",
+        no: c.number || c.candidateNumber || c.no || (i + 1),
+        name: c.name || c.fullName || c.candidateName || "",
+        party: c.party?.name || c.partyName || "",
+        votes: c.totalVotes || c.votes || 0,
+        color: c.party?.color || c.color || FALLBACK_COLORS[i % FALLBACK_COLORS.length],
+        avatar: c.imageUrl || c.image || c.photo || c.avatar || "",
       }));
+    console.log("[API] governor candidates loaded:", state.candidates.governor.length);
+  } else {
+    console.warn("[API] governor candidates empty — will use override sheet as source");
   }
 
   // ─ Governor areas (per-district coverage + totalVotes) ─
@@ -323,12 +328,29 @@ async function applyOverrides() {
         color: (r[colorK] || "").trim(),
       };
     }
-    for (const cand of state.candidates.governor) {
-      const o = byNo[cand.no];
-      if (!o) continue;
-      if (o.name) cand.name = o.name;
-      if (o.avatar) cand.avatar = o.avatar;
-      if (o.color) cand.color = o.color;
+    if (state.candidates.governor.length) {
+      // มี candidates จาก API → ทับแค่ name/avatar/color
+      for (const cand of state.candidates.governor) {
+        const o = byNo[cand.no];
+        if (!o) continue;
+        if (o.name) cand.name = o.name;
+        if (o.avatar) cand.avatar = o.avatar;
+        if (o.color) cand.color = o.color;
+      }
+      console.log("[override] governor names/avatars applied from sheet");
+    } else {
+      // API ไม่ส่ง candidates มา → สร้างจาก override sheet แทน
+      console.warn("[override] building governor candidates FROM sheet (API was empty)");
+      state.candidates.governor = Object.entries(byNo)
+        .sort((a, b) => +a[0] - +b[0])
+        .map(([no, o]) => ({
+          no: +no,
+          name: o.name,
+          party: "",
+          votes: 0,  // คะแนนจะมาจาก API stats รวม (ไม่แยกรายคน)
+          color: o.color || FALLBACK_COLORS[(+no - 1) % FALLBACK_COLORS.length],
+          avatar: o.avatar,
+        }));
     }
   }
 
