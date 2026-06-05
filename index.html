@@ -107,7 +107,7 @@
 <div id="app">
   <aside id="sidebar">
     <h1>เลือกตั้ง กรุงเทพมหานคร</h1>
-    <div class="subtitle">รายงานผลจาก Google Sheets</div>
+    <div class="subtitle">ข้อมูลแบบ Real-time</div>
 
     <div class="tabs">
       <div class="tab active" data-mode="governor">ผู้ว่าฯ กทม.</div>
@@ -925,18 +925,7 @@ function showDistrictDetail(name, candidates) {
 }
 
 function updateFooter() {
-  const f = document.getElementById("footerHelp");
-  const hasDistrict = state.districts.governor.length || state.districts.council.length;
-  if (hasDistrict) {
-    f.innerHTML = `<strong>คลิกเขต</strong>เพื่อดูรายละเอียดคะแนน • อัปเดตทุก ${CONFIG.REFRESH_INTERVAL_SEC} วิ`;
-  } else {
-    f.innerHTML = `
-      <strong>เพิ่มคะแนนรายเขต:</strong> สร้าง tab ใหม่ใน Google Sheet ชื่อ <code>${CONFIG.DISTRICTS_GOVERNOR.sheet}</code><br>
-      คอลัมน์: <code>district</code>, <code>candidate</code>, <code>votes</code>, <code>reported</code><br>
-      ตัวอย่าง: <code>ดอนเมือง | ชัชชาติ สิทธิพันธุ์ | 45230 | 100</code><br><br>
-      ผู้สมัครต้องชื่อตรงกับ tab แรก (เพื่อ map สี/รูป)
-    `;
-  }
+  document.getElementById("footerHelp").innerHTML = "";
 }
 
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
@@ -973,14 +962,7 @@ window.__openSidebarOnMobile = () => { if (window.innerWidth <= 900) setSidebar(
 // ============================================================
 // LEGEND
 // ============================================================
-const legend = L.control({ position: "bottomright" });
-legend.onAdd = function () {
-  const div = L.DomUtil.create("div", "legend");
-  div.innerHTML = `<strong style="font-size:11px;color:#94a3b8">การอ่านแผนที่</strong>
-    <div style="font-size:11px;color:#94a3b8;margin-top:4px">สีของแต่ละเขต = ผู้สมัครที่ชนะคะแนนในเขตนั้น<br>โทนเข้ม = มีข้อมูล • โทนจาง = ยังไม่มีข้อมูล</div>`;
-  return div;
-};
-legend.addTo(map);
+// legend ซ่อน — ไม่แสดงบนหน้าเว็บ production
 
 // ============================================================
 // INIT
